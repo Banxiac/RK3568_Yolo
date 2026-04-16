@@ -1,0 +1,35 @@
+# build directory
+build/
+cmake-build-*/
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# binaries
+*.o
+*.a
+*.so
+*.so.*
+*.out
+*.elf
+
+# executable
+edge_ai_pipeline
+
+# logs
+*.log
+
+# editor
+.vscode/
+.idea/
+
+# system
+.DS_Store
+
+# python if any
+__pycache__/
+*.pyc

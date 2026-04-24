@@ -25,6 +25,8 @@ void alarm_thread(RingQueue<InferResult, 4>& queue,
     InferResult result;
     while (running.load()) {
         if (!queue.pop(result)) { usleep(5000); continue; }
+        if (result.count == 0) continue;
+
         // 构造JSON
         int pos = snprintf(payload, sizeof(payload), "{\"seq\":%lu,\"objects\":[", result.seq);
         for (int i = 0; i < result.count && pos < (int)sizeof(payload) - 64; i++) {

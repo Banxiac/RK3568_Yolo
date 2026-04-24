@@ -37,10 +37,7 @@ static void sse_broadcast(const char* data) {
 
 // ---- MQTT ----
 static void on_message(struct mosquitto*, void*, const struct mosquitto_message* msg) {
-    if (msg->payloadlen > 0) {
-        fprintf(stderr, "[web_viewer] MQTT recv: %.*s\n", msg->payloadlen, (char*)msg->payload);
-        sse_broadcast((char*)msg->payload);
-    }
+    if (msg->payloadlen > 0) sse_broadcast((char*)msg->payload);
 }
 
 static void* mqtt_thread(void* arg) {
@@ -109,22 +106,10 @@ static void serve_mjpeg(int fd, SharedFrame* shm, bool show_boxes) {
     write(fd, hdr, strlen(hdr));
 
     uint64_t last_seq = UINT64_MAX;
-    uint64_t frame_count = 0;
-    time_t last_fps_time = time(nullptr);
     while (true) {
         uint64_t seq = shm->seq.load(std::memory_order_acquire);
         if (seq == last_seq) { usleep(10000); continue; }
         last_seq = seq;
-        frame_count++;
-
-        // 每5秒打印一次帧率和检测数
-        time_t now = time(nullptr);
-        if (now - last_fps_time >= 5) {
-            fprintf(stderr, "[web_viewer] MJPEG: ~%lu fps, seq=%lu, detect_count=%d\n",
-                    frame_count / 5, (unsigned long)seq, shm->detect_count);
-            frame_count = 0;
-            last_fps_time = now;
-        }
 
         cv::Mat yuyv(SHM_HEIGHT, SHM_WIDTH, CV_8UC2, (void*)shm->yuyv);
         cv::Mat bgr;
@@ -133,7 +118,6 @@ static void serve_mjpeg(int fd, SharedFrame* shm, bool show_boxes) {
         // 画识别框
         if (show_boxes) {
             int cnt = shm->detect_count;
-            fprintf(stderr, "[web_viewer] drawing %d boxes\n", cnt);
             for (int i = 0; i < cnt; i++) {
                 const SharedDetect& d = shm->detects[i];
                 cv::rectangle(bgr, cv::Point(d.left, d.top), cv::Point(d.right, d.bottom),

@@ -42,7 +42,12 @@ include_directories(${RGA_PATH}/include)
 set(OpenCV_DIR ${RKNPU2_PATH}/rknn_yolov5_demo/../3rdparty/opencv/opencv-linux-aarch64/share/OpenCV)
 find_package(OpenCV REQUIRED)
 
-# mosquitto: link by name, resolved at runtime on target board
+# MPP
+set(MPP_PATH ${RKNPU2_PATH}/3rdparty/mpp)
+set(MPP_LIB ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so)
+include_directories(${MPP_PATH}/include/rockchip)
+
+
 set(MOSQUITTO_LIB mosquitto)
 
 include_directories(
@@ -62,6 +67,7 @@ add_executable(edge_ai_pipeline
 target_link_libraries(edge_ai_pipeline
   ${RKNN_RT_LIB}
   ${RGA_LIB}
+  ${MPP_LIB}
   ${OpenCV_LIBS}
   ${MOSQUITTO_LIB}
   pthread
@@ -70,6 +76,7 @@ target_link_libraries(edge_ai_pipeline
 install(TARGETS edge_ai_pipeline DESTINATION ./)
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
+install(PROGRAMS ${MPP_LIB} DESTINATION lib)
 
 # web_viewer: HTTP server with MJPEG stream + SSE
 add_executable(web_viewer
@@ -77,10 +84,28 @@ add_executable(web_viewer
 )
 
 target_link_libraries(web_viewer
-  ${OpenCV_LIBS}
   ${MOSQUITTO_LIB}
   pthread
   rt
 )
 
 install(TARGETS web_viewer DESTINATION ./)
+
+# Demo targets: only built if source files exist
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/mjpeg_infer_demo.cpp)
+  add_executable(mjpeg_infer_demo src/mjpeg_infer_demo.cpp)
+  target_link_libraries(mjpeg_infer_demo ${RKNN_RT_LIB} ${RGA_LIB} pthread jpeg)
+  install(TARGETS mjpeg_infer_demo DESTINATION ./)
+endif()
+
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/mjpeg_mpp_demo.cpp)
+  add_executable(mjpeg_mpp_demo src/mjpeg_mpp_demo.cpp)
+  target_link_libraries(mjpeg_mpp_demo ${RKNN_RT_LIB} ${RGA_LIB} ${MPP_LIB} pthread)
+  install(TARGETS mjpeg_mpp_demo DESTINATION ./)
+endif()
+
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/rknn_async_demo.cpp)
+  add_executable(rknn_async_demo src/rknn_async_demo.cpp)
+  target_link_libraries(rknn_async_demo ${RKNN_RT_LIB} ${RGA_LIB} ${MPP_LIB} pthread)
+  install(TARGETS rknn_async_demo DESTINATION ./)
+endif()

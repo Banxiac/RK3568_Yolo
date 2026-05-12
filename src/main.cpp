@@ -1,37 +1,75 @@
 #include "capture.h"
 #include "inference.h"
 #include "alarm.h"
+#include "config.h"
+
 #include <thread>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
+#include <memory>
 
 static std::atomic<bool> running{true};
-
 static void sig_handler(int) { running = false; }
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <model.rknn> [mqtt_host] [mqtt_port] [topic]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <model.rknn> [-c config.ini]\n", argv[0]);
         return 1;
     }
-    const char* model_path = argv[1];
-    const char* mqtt_host  = argc > 2 ? argv[2] : "127.0.0.1";
-    int         mqtt_port  = argc > 3 ? atoi(argv[3]) : 1883;
-    const char* topic      = argc > 4 ? argv[4] : "edge/detect";
 
-    signal(SIGINT,  sig_handler);
+    const char* model_path = argv[1];
+
+    AppConfig cfg;
+    for (int i = 2; i < argc - 1; i++) {
+        if (!strcmp(argv[i], "-c")) {
+            if (!load_config(argv[i + 1], cfg)) {
+                fprintf(stderr,
+                        "Warning: cannot open config '%s', using defaults\n",
+                        argv[i + 1]);
+            }
+            i++;
+        }
+    }
+
+    signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    RingQueue<RawFrame,    4> cap_queue;
-    RingQueue<InferResult, 4> infer_queue;
+    auto cap_queue = std::make_unique<RingQueue<CaptureFrameRef, CAP_REF_QUEUE_SIZE>>();// 生产者线程直接放入 CaptureFrameRef，避免冗余的 MJPEG memcpy。
+    auto infer_queue = std::make_unique<RingQueue<InferResult, INFER_RESULT_QUEUE_SIZE>>();// 推理线程直接输出 InferResult，避免冗余的 DetectResult memcpy。
 
-    std::thread t_cap([&]{ capture_thread(cap_queue, running); });
-    std::thread t_inf([&]{ inference_thread(cap_queue, infer_queue, running, model_path); });
-    std::thread t_alm([&]{ alarm_thread(infer_queue, running, mqtt_host, mqtt_port, topic); });
+    V4L2Shared v4l2_shared;
+
+    std::thread t_cap([&] {
+        capture_thread(*cap_queue, v4l2_shared, running, cfg);
+    });
+
+    std::thread t_inf([&] {
+        inference_thread(*cap_queue, v4l2_shared, *infer_queue, running, model_path);
+    });
+
+    std::thread t_alm([&] {
+        alarm_thread(*infer_queue,
+                     running,
+                     cfg.mqtt_host,
+                     cfg.mqtt_port,
+                     cfg.mqtt_topic);
+    });
 
     t_cap.join();
+
+    running.store(false);
+
     t_inf.join();
     t_alm.join();
+
+    // 归还 capture 线程可能遗留在队列中的 CaptureFrameRef。
+    CaptureFrameRef ref{};
+    while (cap_queue->pop(ref)) {
+        v4l2_shared.qbuf_return(ref.index);
+    }
+
     return 0;
 }
